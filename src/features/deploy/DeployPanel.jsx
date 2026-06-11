@@ -395,6 +395,7 @@ const DeployPanel = ({ treeData, fileContents }) => {
     const wasmPath = resolveWasmPath(selectedContract, fileContents);
     if (!wasmPath) {
       setDeployStatus("error");
+      window.dispatchEvent(new Event("soroban:terminalIdle"));
       window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
         detail: { type: "error", content: "Could not resolve the compiled .wasm path for the selected contract. Build it first." }
       }));
@@ -408,6 +409,7 @@ const DeployPanel = ({ treeData, fileContents }) => {
     const salt = saltMode === "manual" ? manualSalt.trim().toLowerCase() : randomSaltHex();
     if (!/^[0-9a-f]{64}$/.test(salt)) {
       setDeployStatus("error");
+      window.dispatchEvent(new Event("soroban:terminalIdle"));
       window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
         detail: { type: "error", content: "Invalid salt: provide exactly 64 hex chars (0-9, a-f)." }
       }));
@@ -416,7 +418,8 @@ const DeployPanel = ({ treeData, fileContents }) => {
     // Prefix alias with short session ID to avoid collisions between users on shared server key
     const sessionPrefix = getSessionId().slice(0, 8);
     const scopedAlias = `${sessionPrefix}-${alias}`;
-    const cmd = `stellar contract deploy --wasm ${wasmPath} --source ${sourceKey} --network ${deployNetwork} --alias ${scopedAlias} --salt ${salt}${buildOnly}`;
+    const uploadCmd = `stellar contract upload --wasm ${wasmPath} --source ${sourceKey} --network ${deployNetwork}${buildOnly}`;
+    const deployCmd = `stellar contract deploy --wasm ${wasmPath} --source ${sourceKey} --network ${deployNetwork} --alias ${scopedAlias} --salt ${salt}${buildOnly}`;
 
     // Snapshot metadata that will be attached to the history record once
     // the contract ID arrives. Captured here so the async handlers below
@@ -468,80 +471,108 @@ const DeployPanel = ({ treeData, fileContents }) => {
       });
     };
 
-    try {
+    const appendTerminal = (type, content) => {
+      window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
+        detail: { type, content }
+      }));
+    };
+
+    const buildXdr = async (cmd) => {
       const { sessionId, jobId } = await submitCommand(files, cmd);
       window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
         detail: { type: "command", content: cmd, cwd: "~/project" }
       }));
-      let fullLog = "";
-      const cleanup = connectBuildStream(sessionId, jobId, {
-        onMessage: (msg) => {
-          fullLog += (msg.content || "") + "\n";
-          window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
-            detail: { type: msg.type === "error" ? "error" : "output", content: msg.content }
-          }));
-        },
-        onError: () => { setDeployStatus("error"); window.dispatchEvent(new Event("soroban:terminalIdle")); cleanup?.(); },
-        onDone: async () => {
-          window.dispatchEvent(new Event("soroban:terminalIdle"));
-          // Extract XDR: stellar --build-only prints the assembled XDR as the
-          // last stdout line. It's a base64 string (only A-Z, a-z, 0-9, +, /, =).
-          const xdrLineRe = /^[A-Za-z0-9+/]+=*$/;
-          const xdr = fullLog.trim().split("\n")
-            .map(l => l.trim())
-            .filter(l => xdrLineRe.test(l))
-            .pop();
-          if (!xdr) { setDeployStatus("error"); cleanup(); return; }
-          try {
+
+      return await new Promise((resolve, reject) => {
+        let fullLog = "";
+        let settled = false;
+        let cleanup = null;
+        const settle = (fn, value) => {
+          if (settled) return;
+          settled = true;
+          cleanup?.();
+          fn(value);
+        };
+
+        cleanup = connectBuildStream(sessionId, jobId, {
+          onMessage: (msg) => {
+            fullLog += (msg.content || "") + "\n";
             window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
-              detail: { type: "output", content: "🔐 Signing with wallet…" }
+              detail: { type: msg.type === "error" ? "error" : "output", content: msg.content }
             }));
-            const result = await signAndSubmitWithSigner(
-              xdr,
-              walletAddress,
-              (xdrToSign, address) =>
-                signWithWallet(xdrToSign, {
-                  providerId: walletProviderId,
-                  address,
-                  networkPassphrase: walletNetworkPassphrase,
-                  client: walletClient,
-                }),
-            );
-            window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
-              detail: { type: "output", content: `✅ Transaction submitted via ${walletProviderId || "wallet"}!` }
-            }));
-            if (result?.contractId) {
-              await recordDeploy(result.contractId);
-              window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
-                detail: { type: "output", content: `📋 Contract ID: ${result.contractId}` }
-              }));
+          },
+          onError: () => {
+            settle(reject, new Error("Failed to build transaction XDR."));
+          },
+          onDone: () => {
+            // Extract XDR: stellar --build-only prints the assembled XDR as the
+            // last stdout line. It's a base64 string (only A-Z, a-z, 0-9, +, /, =).
+            // Require a substantial length so standalone hashes never win.
+            const minXdrLength = 80;
+            const xdrLineRe = /^[A-Za-z0-9+/]+=*$/;
+            const xdr = fullLog.trim().split("\n")
+              .map(l => l.trim())
+              .filter(l => l.length >= minXdrLength && xdrLineRe.test(l))
+              .pop();
+            if (!xdr) {
+              settle(reject, new Error("Could not find transaction XDR in CLI output."));
+              return;
             }
-            setDeployStatus("success");
-          } catch (err) {
-            // Use the stage tag set by signAndSubmitWithSigner so the user
-            // sees what actually failed (sign popup vs RPC submit vs on-chain).
-            // The message itself already includes the decoded txResultCode
-            // where applicable.
-            const label =
-              err.stage === "submit"  ? "❌ Submit failed:"   :
-              err.stage === "onchain" ? "❌ On-chain failed:" :
-              err.stage === "sign"    ? "❌ Sign failed:"     :
-                                        "❌ Deploy failed:";
-            window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
-              detail: { type: "error", content: `${label} ${err.message}` }
-            }));
-            setDeployStatus("error");
-          }
-          cleanup();
-        },
-        onClose: () => {},
+            settle(resolve, xdr);
+          },
+          onClose: () => {},
+        });
       });
+    };
+
+    const signAndSubmit = async (xdr) => {
+      return await signAndSubmitWithSigner(
+        xdr,
+        walletAddress,
+        (xdrToSign, address) =>
+          signWithWallet(xdrToSign, {
+            providerId: walletProviderId,
+            address,
+            networkPassphrase: walletNetworkPassphrase,
+            client: walletClient,
+          }),
+      );
+    };
+
+    try {
+      appendTerminal("output", "📦 Building wasm upload transaction…");
+      const uploadXdr = await buildXdr(uploadCmd);
+      appendTerminal("output", "🔐 Signing wasm upload with wallet…");
+      await signAndSubmit(uploadXdr);
+      appendTerminal("output", `✅ Wasm upload submitted via ${walletProviderId || "wallet"}!`);
+
+      appendTerminal("output", "🚀 Building contract deploy transaction…");
+      const deployXdr = await buildXdr(deployCmd);
+      appendTerminal("output", "🔐 Signing contract deploy with wallet…");
+      const result = await signAndSubmit(deployXdr);
+
+      appendTerminal("output", `✅ Contract deploy submitted via ${walletProviderId || "wallet"}!`);
+      if (result?.contractId) {
+        await recordDeploy(result.contractId);
+        appendTerminal("output", `📋 Contract ID: ${result.contractId}`);
+        setDeployStatus("success");
+      } else {
+        throw new Error("Deploy transaction submitted, but no contract ID was returned.");
+      }
     } catch (err) {
+      // Use the stage tag set by signAndSubmitWithSigner so the user
+      // sees what actually failed (sign popup vs RPC submit vs on-chain).
+      // The message itself already includes the decoded txResultCode
+      // where applicable.
+      const label =
+        err?.stage === "submit"  ? "❌ Submit failed:"   :
+        err?.stage === "onchain" ? "❌ On-chain failed:" :
+        err?.stage === "sign"    ? "❌ Sign failed:"     :
+                                  "❌ Deploy failed:";
+      appendTerminal("error", `${label} ${errString(err)}`);
       setDeployStatus("error");
+    } finally {
       window.dispatchEvent(new Event("soroban:terminalIdle"));
-      window.dispatchEvent(new CustomEvent("soroban:terminalAppend", {
-        detail: { type: "error", content: err.message }
-      }));
     }
   }, [treeData, fileContents, alias, walletAddress, walletProviderId, walletNetworkPassphrase, walletClient, selectedContract, addDeployment, deployNetwork, saltMode, manualSalt]);
 

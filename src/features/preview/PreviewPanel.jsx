@@ -25,7 +25,7 @@ import { watchLocalServer } from "../../services/localServerProbe";
 import { bundleFrontendInBrowser } from "../../services/inBrowserBundler";
 import { useContract } from "../../context/ContractContext";
 import { useDeploy } from "../../context/DeployContext";
-import { getLatestDeployedContract, getPreviewContract, toViteNetwork } from "../deploy/deploymentHistory";
+import { getPreviewContract } from "../deploy/deploymentHistory";
 import {
   fingerprintFrontend,
   BUILD_STAGE_ORDER,
@@ -53,26 +53,14 @@ const normalizeUrl = (raw) => {
 };
 
 const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
-  const { walletAddress, contractId, connectWallet } = useContract();
+  const { walletAddress, connectWallet } = useContract();
   const { deploymentHistory } = useDeploy();
   const detection = useMemo(() => detectFrontendRoot(treeData), [treeData]);
 
-  const previewContract = useMemo(() => {
-    if (contractId?.startsWith("C")) {
-      const fromHistory = Object.values(deploymentHistory || {})
-        .flat()
-        .find((d) => d.id === contractId);
-      const fnNames = new Set((fromHistory?.functions || []).map((f) => f.name));
-      const hasCounterApi = fnNames.size === 0 || (fnNames.has("get") && fnNames.has("increment"));
-      if (hasCounterApi) {
-        return {
-          contractId,
-          network: toViteNetwork(fromHistory?.network),
-        };
-      }
-    }
-    return getPreviewContract(deploymentHistory);
-  }, [contractId, deploymentHistory]);
+  const previewContract = useMemo(
+    () => getPreviewContract(deploymentHistory),
+    [deploymentHistory],
+  );
 
   // "in-ide" — bundle in the browser (default) | "external" — localhost dev server
   const [localMode, setLocalMode] = useState(() => {
@@ -168,7 +156,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
           setBuildState({ phase: "building", stage: p.stage, message: p.message });
         },
         walletAddress: walletAddress || undefined,
-        contractId: previewContract?.contractId,
+        contractId: previewContract?.contractId ?? "",
         network: previewContract?.network,
       });
       setPreviewBlobs(result.blobUrl, result.auxBlobUrls);

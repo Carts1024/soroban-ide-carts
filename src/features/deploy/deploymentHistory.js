@@ -174,10 +174,21 @@ export function toViteNetwork(network) {
   return "TESTNET";
 }
 
+const isCounterDeployPath = (path, pathHint = "counter") => {
+  if (!path) return false;
+  const p = path.replace(/\\/g, "/");
+  return p.includes(`${pathHint}/`) || p.endsWith(`/${pathHint}`) || p.endsWith(pathHint);
+};
+
+const deploymentHasCounterApi = (deployment, requiredMethods = ["get", "increment"]) => {
+  const fnNames = new Set((deployment?.functions || []).map((f) => f.name).filter(Boolean));
+  if (fnNames.size === 0) return null; // unknown — decide via path only
+  return requiredMethods.every((m) => fnNames.has(m));
+};
+
 /**
  * Pick the best deployed contract for the fullstack-workshop counter UI.
- * Prefers deployments whose interface includes `get` + `increment`, then
- * paths containing "counter", then the most recent deploy overall.
+ * Only returns contracts on a counter path or with a verified get/increment API.
  */
 export function getPreviewContract(history, options = {}) {
   const requiredMethods = options.requiredMethods || ["get", "increment"];
@@ -185,17 +196,18 @@ export function getPreviewContract(history, options = {}) {
 
   const candidates = [];
   for (const group of listGroups(history)) {
+    const pathMatch = isCounterDeployPath(group.path, pathHint);
     for (const d of group.deployments) {
       if (!d?.id?.startsWith("C")) continue;
-      const fnNames = new Set((d.functions || []).map((f) => f.name).filter(Boolean));
-      const hasRequired = requiredMethods.every((m) => fnNames.size === 0 || fnNames.has(m));
-      const pathMatch = group.path.includes(pathHint);
+      const apiCheck = deploymentHasCounterApi(d, requiredMethods);
+      if (apiCheck === false) continue; // known wrong contract
+      if (apiCheck === null && !pathMatch) continue; // unknown API on non-counter path
       candidates.push({
         contractId: d.id,
         network: toViteNetwork(d.network),
         deployedAt: d.deployedAt || 0,
         status: d.status,
-        hasRequired,
+        verifiedApi: apiCheck === true,
         pathMatch,
         path: group.path,
       });
@@ -203,7 +215,7 @@ export function getPreviewContract(history, options = {}) {
   }
 
   candidates.sort((a, b) => {
-    if (a.hasRequired !== b.hasRequired) return a.hasRequired ? -1 : 1;
+    if (a.verifiedApi !== b.verifiedApi) return a.verifiedApi ? -1 : 1;
     if (a.pathMatch !== b.pathMatch) return a.pathMatch ? -1 : 1;
     if ((a.status === "active") !== (b.status === "active")) return a.status === "active" ? -1 : 1;
     return b.deployedAt - a.deployedAt;
@@ -213,7 +225,7 @@ export function getPreviewContract(history, options = {}) {
   if (best) {
     return { contractId: best.contractId, network: best.network, path: best.path };
   }
-  return getLatestDeployedContract(history);
+  return null;
 }
 
 /**

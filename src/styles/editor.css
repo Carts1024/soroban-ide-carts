@@ -129,3 +129,43 @@
 .welcome-screen:hover .welcome-title {
   opacity: 0.18;
 }
+
+/* Floating Toolbar for Markdown Editors */
+.editor-floating-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 60px;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+}
+
+.editor-toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(30, 30, 34, 0.75);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.editor-toolbar-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.editor-toolbar-btn:active {
+  transform: translateY(0);
+}

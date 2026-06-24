@@ -71,7 +71,15 @@ export const simulate = async <T = unknown>(method: string, source: string): Pro
 
   const sim = await server.simulateTransaction(tx);
   if (rpc.Api.isSimulationError(sim)) {
-    throw new Error(`Simulation failed: ${sim.error}`);
+    const err = sim.error || "Simulation failed";
+    if (/non-existent contract function/i.test(err)) {
+      throw new Error(
+        `This contract does not have a "${method}" function. `
+        + "Deploy the counter from contracts/counter in the Deploy panel (build + deploy), "
+        + "then click Rebuild in Preview.",
+      );
+    }
+    throw new Error(`Simulation failed: ${err}`);
   }
   const retval = (sim as rpc.Api.SimulateTransactionSuccessResponse).result?.retval;
   if (!retval) throw new Error("Simulation returned no value");

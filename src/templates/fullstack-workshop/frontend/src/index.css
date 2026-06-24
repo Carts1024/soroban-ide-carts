@@ -225,6 +225,16 @@ a { color: var(--text); }
 .status-loading { background: rgba(99, 102, 241, 0.12); color: #c4c5ff; border: 1px solid rgba(99, 102, 241, 0.25); }
 .status-ok      { background: rgba(76, 194, 107, 0.12); color: var(--ok);  border: 1px solid rgba(76, 194, 107, 0.25); }
 .status-error   { background: rgba(248, 81, 73, 0.12); color: var(--err); border: 1px solid rgba(248, 81, 73, 0.25); }
+.status-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.95;
+}
+.status-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
 
 .spinner {
   width: 12px;

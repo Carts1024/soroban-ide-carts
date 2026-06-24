@@ -25,7 +25,7 @@ import { watchLocalServer } from "../../services/localServerProbe";
 import { bundleFrontendInBrowser } from "../../services/inBrowserBundler";
 import { useContract } from "../../context/ContractContext";
 import { useDeploy } from "../../context/DeployContext";
-import { getLatestDeployedContract, toViteNetwork } from "../deploy/deploymentHistory";
+import { getLatestDeployedContract, getPreviewContract, toViteNetwork } from "../deploy/deploymentHistory";
 import {
   fingerprintFrontend,
   BUILD_STAGE_ORDER,
@@ -62,12 +62,16 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
       const fromHistory = Object.values(deploymentHistory || {})
         .flat()
         .find((d) => d.id === contractId);
-      return {
-        contractId,
-        network: toViteNetwork(fromHistory?.network),
-      };
+      const fnNames = new Set((fromHistory?.functions || []).map((f) => f.name));
+      const hasCounterApi = fnNames.size === 0 || (fnNames.has("get") && fnNames.has("increment"));
+      if (hasCounterApi) {
+        return {
+          contractId,
+          network: toViteNetwork(fromHistory?.network),
+        };
+      }
     }
-    return getLatestDeployedContract(deploymentHistory);
+    return getPreviewContract(deploymentHistory);
   }, [contractId, deploymentHistory]);
 
   // "in-ide" — bundle in the browser (default) | "external" — localhost dev server

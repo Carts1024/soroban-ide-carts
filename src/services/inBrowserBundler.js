@@ -357,7 +357,7 @@ export async function bundleFrontendInBrowser(treeData, fileContents, options = 
   if (options.walletAddress) {
     env.VITE_WALLET_ADDRESS = options.walletAddress;
   }
-  if (options.contractId) {
+  if (options.contractId !== undefined) {
     env.VITE_CONTRACT_ID = options.contractId;
   }
   if (options.network) {

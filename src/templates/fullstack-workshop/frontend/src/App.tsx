@@ -12,9 +12,20 @@ type Status =
   | { kind: "idle" }
   | { kind: "loading"; label: string }
   | { kind: "error"; message: string }
-  | { kind: "ok"; message: string };
+  | { kind: "ok"; message: string }
+  | { kind: "setup"; title: string; message: string };
 
 const short = (s: string) => (s.length > 14 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s);
+
+const isWrongContractMessage = (message: string) =>
+  /does not have a "get" function|non-existent contract function|MissingValue/i.test(message);
+
+const SetupCard = ({ title, message }: { title: string; message: string }) => (
+  <div className="empty-card">
+    <div className="empty-title">{title}</div>
+    <div className="empty-sub">{message}</div>
+  </div>
+);
 
 const App = () => {
   const { address, detecting, connect } = useWallet();
@@ -22,9 +33,17 @@ const App = () => {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   const refresh = useCallback(async () => {
-    if (!contractId) return;
+    if (!contractId) {
+      setStatus({
+        kind: "setup",
+        title: "Deploy the counter contract",
+        message: "Open the Deploy panel in Soroban IDE, select contracts/counter, build, and deploy. Then click Rebuild in Preview.",
+      });
+      return;
+    }
     if (!address) {
       setCount(null);
+      setStatus({ kind: "idle" });
       return;
     }
     setStatus({ kind: "loading", label: "Reading counter" });
@@ -33,7 +52,17 @@ const App = () => {
       setCount(Number(value));
       setStatus({ kind: "idle" });
     } catch (err) {
-      setStatus({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      if (isWrongContractMessage(message)) {
+        setStatus({
+          kind: "setup",
+          title: "Wrong contract linked",
+          message: "The preview is pointing at a contract without a get function. In Deploy, select contracts/counter, build, deploy, then Rebuild in Preview.",
+        });
+        setCount(null);
+        return;
+      }
+      setStatus({ kind: "error", message });
     }
   }, [address]);
 
@@ -59,9 +88,28 @@ const App = () => {
       setCount(Number(next));
       setStatus({ kind: "ok", message: `${label} confirmed` });
     } catch (err) {
-      setStatus({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      if (isWrongContractMessage(message)) {
+        setStatus({
+          kind: "setup",
+          title: "Wrong contract linked",
+          message: "Deploy contracts/counter from the Deploy panel, then Rebuild in Preview.",
+        });
+        return;
+      }
+      setStatus({ kind: "error", message });
     }
   };
+
+  const showSetup = status.kind === "setup" || !contractId;
+  const setup = status.kind === "setup"
+    ? status
+    : !contractId
+      ? {
+          title: "Deploy the counter contract",
+          message: "Open the Deploy panel in Soroban IDE, select contracts/counter, build, and deploy. Then click Rebuild in Preview.",
+        }
+      : null;
 
   return (
     <div className="page">
@@ -87,15 +135,8 @@ const App = () => {
       </header>
 
       <main className="main">
-        {!contractId ? (
-          <div className="empty-card">
-            <div className="empty-title">No contract linked yet</div>
-            <div className="empty-sub">
-              Deploy the counter contract in the Soroban IDE <strong>Deploy</strong> panel,
-              then click <strong>Rebuild</strong> in Preview. The contract ID is picked up
-              automatically — no manual <code>.env</code> editing required.
-            </div>
-          </div>
+        {showSetup && setup ? (
+          <SetupCard title={setup.title} message={setup.message} />
         ) : (
           <>
             <section className="count-card">
@@ -124,7 +165,6 @@ const App = () => {
             {!address && !detecting && (
               <p className="hint">
                 Connect Freighter in the Deploy panel or click <strong>Connect Freighter</strong> above.
-                Your wallet address is picked up automatically when available.
               </p>
             )}
 
@@ -135,26 +175,14 @@ const App = () => {
             )}
             {status.kind === "ok" && <div className="status status-ok">{status.message}</div>}
             {status.kind === "error" && (
-              <div className="status status-error">
-                {status.message}
-                {/does not have a "get" function/i.test(status.message) && (
-                  <div className="status-hint">
-                    In <strong>Deploy</strong>, select <code>contracts/counter</code>, build, deploy,
-                    then <strong>Rebuild</strong> in Preview.
-                  </div>
-                )}
-              </div>
+              <div className="status status-error">{status.message}</div>
             )}
           </>
         )}
       </main>
 
       <footer className="footer">
-        Deployed via{" "}
-        <a href="https://vercel.com" target="_blank" rel="noopener noreferrer">
-          Vercel
-        </a>{" "}
-        · Built in Soroban IDE
+        Built in Soroban IDE · in-browser preview
       </footer>
     </div>
   );

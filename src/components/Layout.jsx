@@ -20,10 +20,11 @@ import { cloneRepository } from "../services/githubService";
 import { FileIconImg, FolderIconImg } from "../components/icons/FileIcon";
 import { ChevronDown, ChevronRight } from "../components/icons/ChevronIcons";
 import { sortNodes, uniqueId, ensureTreeIds } from "../features/workspace/workspaceUtils";
-import { Plus, FolderOpen, FileText, X, Menu, Image as ImageIcon } from "lucide-react";
+import { Plus, FolderOpen, FileText, X, Menu, Image as ImageIcon, Eye, Split } from "lucide-react";
 import Sidebar from "../features/sidebar/Sidebar";
 import Tabs from "../features/tabs/Tabs";
 import Editor from "../features/editor/Editor";
+import MarkdownPreview from "../features/editor/MarkdownPreview";
 import Terminal from "../features/terminal/Terminal";
 import { getLanguageFromName, getLanguageDisplayName } from "../features/editor/editorUtils";
 import { cloneNodeWithNewIds, addNodeToTree, moveNodeInTree } from "../features/workspace/workspaceUtils";
@@ -63,6 +64,7 @@ const Layout = () => {
   const createMenuRef = useRef(null);
   const setFileContentsRef = useRef(workspace.setFileContents);
   const imageInputRef = useRef(null);
+  const [markdownMode, setMarkdownMode] = useState("edit"); // "edit" | "preview" | "split"
 
   const handleInsertImageClick = useCallback(() => {
     imageInputRef.current?.click();
@@ -785,9 +787,72 @@ const Layout = () => {
               </div>
 
               <div className="editor-area">
-                <Editor fileId={tabManager.activeFileId} filePath={activeFile?.path} content={activeContent} language={language} theme={theme} onChange={handleEditorChange} onCursorChange={handleCursorChange} />
+                {language === "markdown" && markdownMode === "preview" ? (
+                  <MarkdownPreview
+                    content={activeContent}
+                    filePath={activeFile?.path}
+                    fileContents={workspace.fileContents}
+                    theme={theme}
+                  />
+                ) : language === "markdown" && markdownMode === "split" ? (
+                  <div className="markdown-split-container">
+                    <div className="markdown-split-pane">
+                      <Editor
+                        fileId={tabManager.activeFileId}
+                        filePath={activeFile?.path}
+                        content={activeContent}
+                        language={language}
+                        theme={theme}
+                        onChange={handleEditorChange}
+                        onCursorChange={handleCursorChange}
+                      />
+                    </div>
+                    <div className="markdown-split-pane">
+                      <MarkdownPreview
+                        content={activeContent}
+                        filePath={activeFile?.path}
+                        fileContents={workspace.fileContents}
+                        theme={theme}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <Editor
+                    fileId={tabManager.activeFileId}
+                    filePath={activeFile?.path}
+                    content={activeContent}
+                    language={language}
+                    theme={theme}
+                    onChange={handleEditorChange}
+                    onCursorChange={handleCursorChange}
+                  />
+                )}
                 {language === "markdown" && (
                   <div className="editor-floating-toolbar">
+                    <button
+                      className={`editor-toolbar-btn ${markdownMode === "edit" ? "active" : ""}`}
+                      onClick={() => setMarkdownMode("edit")}
+                      title="Edit Mode"
+                    >
+                      <FileText size={14} />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      className={`editor-toolbar-btn ${markdownMode === "split" ? "active" : ""}`}
+                      onClick={() => setMarkdownMode("split")}
+                      title="Split View"
+                    >
+                      <Split size={14} />
+                      <span>Split</span>
+                    </button>
+                    <button
+                      className={`editor-toolbar-btn ${markdownMode === "preview" ? "active" : ""}`}
+                      onClick={() => setMarkdownMode("preview")}
+                      title="Preview Mode"
+                    >
+                      <Eye size={14} />
+                      <span>Preview</span>
+                    </button>
                     <button className="editor-toolbar-btn" onClick={handleInsertImageClick} title="Insert Photo">
                       <ImageIcon size={14} />
                       <span>Insert Photo</span>

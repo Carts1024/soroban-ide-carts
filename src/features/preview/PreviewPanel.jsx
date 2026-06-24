@@ -5,11 +5,9 @@ import {
   Tablet,
   RefreshCw,
   ExternalLink,
-  Globe,
   Laptop2,
   AlertCircle,
   Download,
-  Rocket,
   Loader,
   CheckCircle,
   Sparkles,
@@ -36,7 +34,6 @@ import {
   shortContractId,
 } from "./previewUtils";
 
-const LAST_VERCEL_URL_KEY = "soroban.lastVercelUrl";
 const LAST_LOCAL_URL_KEY = "soroban.lastLocalPreviewUrl";
 const LOCAL_MODE_KEY = "soroban.localPreviewMode"; // "in-ide" | "external"
 const AUTO_LIVE_KEY = "soroban.previewAutoLive";
@@ -73,12 +70,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
     return getLatestDeployedContract(deploymentHistory);
   }, [contractId, deploymentHistory]);
 
-  // "local" (in-IDE bundle or external URL) | "deployed" (Vercel)
-  const [source, setSource] = useState("local");
-
-  // Within the Local source, two execution modes:
-  //   "in-ide"   — bundle the workspace into a blob and frame it (default)
-  //   "external" — frame a custom localhost URL (power-user fallback)
+  // "in-ide" — bundle in the browser (default) | "external" — localhost dev server
   const [localMode, setLocalMode] = useState(() => {
     try { return localStorage.getItem(LOCAL_MODE_KEY) || "in-ide"; }
     catch { return "in-ide"; }
@@ -90,10 +82,6 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
   const [localUrl, setLocalUrl] = useState(() => {
     try { return localStorage.getItem(LAST_LOCAL_URL_KEY) || DEFAULT_LOCAL_URL; }
     catch { return DEFAULT_LOCAL_URL; }
-  });
-  const [deployedUrl, setDeployedUrl] = useState(() => {
-    try { return localStorage.getItem(LAST_VERCEL_URL_KEY) || ""; }
-    catch { return ""; }
   });
 
   const [deviceId, setDeviceId] = useState("desktop");
@@ -129,14 +117,6 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
   useEffect(() => {
     try { localStorage.setItem(LAST_LOCAL_URL_KEY, localUrl); } catch { /* ignore */ }
   }, [localUrl]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === LAST_VERCEL_URL_KEY) setDeployedUrl(e.newValue || "");
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, []);
 
   // ─── Bundle action ────────────────────────────────────────────────────
   // Revoke every blob URL from the previous build (HTML + JS module) so we
@@ -212,7 +192,6 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
   // Listen for "soroban:runInIdeBuild" — opens preview (via Sidebar) then builds.
   useEffect(() => {
     const handler = () => {
-      setSource("local");
       setLocalMode("in-ide");
       runBuild();
     };
@@ -222,7 +201,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
 
   // Live rebuild — when frontend files change and a preview is already running.
   useEffect(() => {
-    if (!autoLive || source !== "local" || localMode !== "in-ide") return undefined;
+    if (!autoLive || localMode !== "in-ide") return undefined;
     if (buildState.phase !== "ready" || !frontendFingerprint) return undefined;
     if (!lastBuiltFingerprintRef.current) {
       lastBuiltFingerprintRef.current = frontendFingerprint;
@@ -231,49 +210,32 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
     if (lastBuiltFingerprintRef.current === frontendFingerprint) return undefined;
     const timer = setTimeout(() => runBuild(), 500);
     return () => clearTimeout(timer);
-  }, [autoLive, source, localMode, buildState.phase, frontendFingerprint, runBuild]);
+  }, [autoLive, localMode, buildState.phase, frontendFingerprint, runBuild]);
 
   // ⌘/Ctrl+Shift+B — quick rebuild while the preview panel is open.
   useEffect(() => {
     if (!isActive) return undefined;
     const onKey = (e) => {
       if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.key.toLowerCase() !== "b") return;
-      if (source !== "local" || localMode !== "in-ide") return;
+      if (localMode !== "in-ide") return;
       e.preventDefault();
       runBuild();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isActive, source, localMode, runBuild]);
+  }, [isActive, localMode, runBuild]);
 
   const openPanel = useCallback((panel) => {
     window.dispatchEvent(new CustomEvent("soroban:setSidebarPanel", { detail: { panel } }));
   }, []);
 
-  // Listen for Vercel deploys → flip to Deployed automatically.
-  useEffect(() => {
-    const handler = (e) => {
-      const url = e.detail?.url || "";
-      if (!url) return;
-      setDeployedUrl(url);
-      setSource("deployed");
-      setLoadedOnce(false);
-      setReloadCounter((n) => n + 1);
-    };
-    window.addEventListener("soroban:vercelDeployUrl", handler);
-    return () => window.removeEventListener("soroban:vercelDeployUrl", handler);
-  }, []);
-
-  // Listen for the legacy "open Preview at a URL" event from LocalDeployView's
-  // external-URL helper. We keep this for advanced users with their own
-  // dev server running.
+  // External dev-server URL (advanced fallback).
   useEffect(() => {
     const handler = (e) => {
       const url = e.detail?.url;
       if (typeof url === "string" && url.trim()) {
         setLocalUrl(url.trim());
       }
-      setSource("local");
       setLocalMode("external");
       setLoadedOnce(false);
       setReloadCounter((n) => n + 1);
@@ -285,7 +247,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
   // ─── External URL probe (only when localMode === "external") ──────────
   const prevOnlineRef = useRef(false);
   useEffect(() => {
-    if (source !== "local" || localMode !== "external") return undefined;
+    if (localMode !== "external") return undefined;
     const normalized = normalizeUrl(localUrl);
     if (!normalized) return undefined;
     const stop = watchLocalServer(normalized, (res) => {
@@ -299,7 +261,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
       }
     }, { intervalMs: 3000, timeoutMs: 1500 });
     return stop;
-  }, [source, localMode, localUrl]);
+  }, [localMode, localUrl]);
 
   // Clean up the blob URL on unmount so it doesn't leak after the user
   // closes the panel.
@@ -318,20 +280,18 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
   const device = DEVICE_PRESETS.find((d) => d.id === deviceId) || DEVICE_PRESETS[0];
 
   const activeUrl = useMemo(() => {
-    if (source === "deployed") return deployedUrl;
     if (localMode === "in-ide") return buildState.phase === "ready" ? buildState.blobUrl : "";
     return normalizeUrl(localUrl);
-  }, [source, deployedUrl, localMode, buildState, localUrl]);
+  }, [localMode, buildState, localUrl]);
 
   const refresh = useCallback(() => {
     setLoadedOnce(false);
-    if (source === "local" && localMode === "in-ide") {
-      // Refresh = rebuild — code may have changed.
+    if (localMode === "in-ide") {
       runBuild();
       return;
     }
     setReloadCounter((n) => n + 1);
-  }, [source, localMode, runBuild]);
+  }, [localMode, runBuild]);
 
   const openInNewTab = useCallback(() => {
     if (activeUrl) window.open(activeUrl, "_blank", "noopener,noreferrer");
@@ -351,15 +311,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
     }
   }, [treeData, fileContents]);
 
-  const handleDeployAndPreview = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("soroban:setSidebarPanel", {
-      detail: { panel: "fullstack" },
-    }));
-    window.dispatchEvent(new CustomEvent("soroban:openVercelDeploy"));
-  }, []);
-
-  const showLocalEmpty = source === "local" && detection.kind === "empty";
-  const showDeployedEmpty = source === "deployed" && !deployedUrl;
+  const showLocalEmpty = detection.kind === "empty";
   const localHasFrontend = detection.kind !== "empty";
   const hasContract = Boolean(previewContract?.contractId);
   const hasWallet = Boolean(walletAddress);
@@ -371,29 +323,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
   return (
     <div className="pv-panel">
       <div className="pv-header">
-        <div className="pv-source-toggle" role="tablist">
-          <button
-            role="tab"
-            aria-selected={source === "local"}
-            className={`pv-source-btn ${source === "local" ? "is-active" : ""}`}
-            onClick={() => setSource("local")}
-            title="Preview the app inside the IDE"
-          >
-            <Laptop2 size={12} /> Local
-          </button>
-          <button
-            role="tab"
-            aria-selected={source === "deployed"}
-            className={`pv-source-btn ${source === "deployed" ? "is-active" : ""}`}
-            onClick={() => setSource("deployed")}
-            title="Preview the latest Vercel deployment"
-          >
-            <Globe size={12} /> Deployed
-          </button>
-        </div>
-
-        {/* Action bar — varies based on what we're previewing. */}
-        {source === "local" && localMode === "in-ide" ? (
+        {localMode === "in-ide" ? (
           <div className="pv-action-row">
             <button
               className={`pv-live-toggle ${autoLive ? "is-on" : ""}`}
@@ -433,7 +363,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
               <ExternalLink size={12} />
             </button>
           </div>
-        ) : source === "local" ? (
+        ) : (
           <div className="pv-url-row">
             <input
               className="pv-url-input"
@@ -467,33 +397,9 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
               <ExternalLink size={12} />
             </button>
           </div>
-        ) : (
-          <div className="pv-url-row">
-            <div className="pv-url-static" title={deployedUrl || "No deployment yet"}>
-              {deployedUrl
-                ? deployedUrl.replace(/^https?:\/\//, "")
-                : <span className="pv-url-static-empty">No deployment yet</span>}
-            </div>
-            <button
-              className="pv-icon-btn"
-              onClick={refresh}
-              disabled={!activeUrl}
-              title="Reload preview"
-            >
-              <RefreshCw size={12} />
-            </button>
-            <button
-              className="pv-icon-btn"
-              onClick={openInNewTab}
-              disabled={!activeUrl}
-              title="Open in new tab"
-            >
-              <ExternalLink size={12} />
-            </button>
-          </div>
         )}
 
-        {source === "local" && localMode === "in-ide" && localHasFrontend && (
+        {localMode === "in-ide" && localHasFrontend && (
           <ReadinessStrip
             hasContract={hasContract}
             hasWallet={hasWallet}
@@ -528,18 +434,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
             title="No workspace loaded"
             subtitle="Open a project that contains a frontend folder to use the preview."
           />
-        ) : showDeployedEmpty ? (
-          <EmptyState
-            icon={<Globe size={20} />}
-            title="No deployment yet"
-            subtitle="Deploy your frontend to Vercel and the latest URL will appear here automatically."
-            primaryAction={localHasFrontend ? {
-              label: "Deploy with Vercel",
-              icon: <Rocket size={12} />,
-              onClick: handleDeployAndPreview,
-            } : null}
-          />
-        ) : source === "local" && localMode === "in-ide" ? (
+        ) : localMode === "in-ide" ? (
           <InIdeBody
             buildState={buildState}
             device={device}
@@ -554,7 +449,7 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
             onDeploy={goDeploy}
             onConnectWallet={connectWallet}
           />
-        ) : source === "local" ? (
+        ) : (
           <ExternalBody
             url={activeUrl}
             phase={externalStatus.phase}
@@ -566,30 +461,16 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
             folderPath={detection.kind === "subfolder" ? detection.path : null}
             refresh={refresh}
           />
-        ) : activeUrl ? (
-          <div className="pv-frame-wrap" data-device={deviceId}>
-            <iframe
-              ref={iframeRef}
-              key={`${source}-${reloadCounter}`}
-              className="pv-frame"
-              src={activeUrl}
-              style={device.width ? { width: device.width, maxWidth: "100%" } : undefined}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"
-              title={`${source} preview`}
-              onLoad={handleIframeLoad}
-            />
-          </div>
-        ) : null}
+        )}
 
-        {source === "local" && buildState.phase !== "ready" && (
+        {localMode === "in-ide" && buildState.phase !== "ready" && (
           <LocalHints
             detection={detection}
             downloadState={downloadState}
             onDownload={handleDownload}
-            onDeployAndPreview={handleDeployAndPreview}
           />
         )}
-        {source === "local" && buildState.phase === "ready" && (
+        {localMode === "in-ide" && buildState.phase === "ready" && (
           <div className="pv-hints-collapsed">
             <button
               type="button"
@@ -598,40 +479,18 @@ const PreviewPanel = ({ treeData, fileContents, isActive = true }) => {
               aria-expanded={hintsOpen}
             >
               {hintsOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-              {hintsOpen ? "Hide tips" : "Deploy or download"}
+              {hintsOpen ? "Hide tips" : "Download frontend"}
             </button>
             {hintsOpen && (
               <LocalHints
                 detection={detection}
                 downloadState={downloadState}
                 onDownload={handleDownload}
-                onDeployAndPreview={handleDeployAndPreview}
               />
             )}
           </div>
         )}
       </div>
-
-      {source === "deployed" && deployedUrl && (
-        <div className="pv-footer">
-          <span className="pv-footer-status">
-            <CheckCircle size={11} /> Loaded {loadedOnce ? "" : "(may take a moment)"}
-          </span>
-          <button
-            className="pv-link-btn"
-            onClick={() => {
-              try {
-                const v = localStorage.getItem(LAST_VERCEL_URL_KEY) || "";
-                setDeployedUrl(v);
-              } catch { /* ignore */ }
-              refresh();
-            }}
-            title="Re-sync from latest stored deployment"
-          >
-            Use latest deployment
-          </button>
-        </div>
-      )}
     </div>
   );
 };
@@ -914,37 +773,25 @@ const LocalWaiting = ({ url, phase, folderPath }) => (
   </div>
 );
 
-const LocalHints = ({ detection, downloadState, onDownload, onDeployAndPreview }) => {
+const LocalHints = ({ detection, downloadState, onDownload }) => {
   const folderPath = detection.kind === "subfolder" ? detection.path : null;
   const folderLabel = folderPath ? `${folderPath}/` : "your frontend folder";
 
   return (
     <div className="pv-hints">
       <div className="pv-hint-title">
-        <Sparkles size={11} /> What's next?
+        <Sparkles size={11} /> Run locally on your machine
       </div>
 
       <div className="pv-hint-row">
         <div className="pv-hint-num">1</div>
         <div className="pv-hint-text">
-          <strong>Ship publicly</strong> — when the preview looks good,
-          deploy it to Vercel for a sharable URL.
-        </div>
-        <button className="pv-cta-btn pv-cta-primary" onClick={onDeployAndPreview}>
-          <Rocket size={11} /> Deploy and preview
-        </button>
-      </div>
-
-      <div className="pv-hint-row">
-        <div className="pv-hint-num">2</div>
-        <div className="pv-hint-text">
-          <strong>Run on your laptop</strong> — download{" "}
-          <code>{folderLabel}</code> and run{" "}
-          <code>npm install &amp;&amp; npm run dev</code> for HMR with your
-          favourite editor.
+          <strong>Download</strong> <code>{folderLabel}</code> and run{" "}
+          <code>npm install &amp;&amp; npm run dev</code> for full Vite HMR
+          in your own editor.
         </div>
         <button
-          className="pv-cta-btn"
+          className="pv-cta-btn pv-cta-primary"
           onClick={onDownload}
           disabled={downloadState.kind === "loading"}
         >

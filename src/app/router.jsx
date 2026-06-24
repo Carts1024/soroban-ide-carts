@@ -3,11 +3,14 @@ import Layout from '../components/Layout';
 import React from 'react';
 import { ContractProvider } from '../context/ContractContext';
 import { DeployProvider } from '../context/DeployContext';
+import { FullstackProvider } from '../context/FullstackContext';
 
 const WrappedLayout = () => (
   <ContractProvider>
     <DeployProvider>
-      <Layout />
+      <FullstackProvider>
+        <Layout />
+      </FullstackProvider>
     </DeployProvider>
   </ContractProvider>
 );

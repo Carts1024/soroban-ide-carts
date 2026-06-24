@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { connectStellarWallet, getConnectedWallet, WALLET_PROVIDERS } from "../services/walletManager";
 import { registerFreighterWallet } from "../services/backendService";
+import { getLatestDeployedContract, loadHistory } from "../features/deploy/deploymentHistory";
 
 const ContractContext = createContext(null);
 
@@ -48,6 +49,23 @@ export const ContractProvider = ({ children }) => {
       }
     };
     checkConnection();
+  }, []);
+
+  // Restore the most recent deployed contract so preview/interact panels
+  // work without requiring frontend/.env to be edited manually.
+  useEffect(() => {
+    const latest = getLatestDeployedContract(loadHistory());
+    if (latest?.contractId) setContractId(latest.contractId);
+  }, []);
+
+  // Keep in sync when the Deploy panel finishes a new deployment.
+  useEffect(() => {
+    const handler = (e) => {
+      const { contractId } = e.detail || {};
+      if (contractId) setContractId(contractId);
+    };
+    window.addEventListener("soroban:contractDeployed", handler);
+    return () => window.removeEventListener("soroban:contractDeployed", handler);
   }, []);
 
 

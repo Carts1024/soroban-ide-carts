@@ -469,6 +469,20 @@ const DeployPanel = ({ treeData, fileContents }) => {
         next.add(contractId);
         return next;
       });
+      // Broadcast so the Fullstack panel can offer to auto-inject this
+      // contract ID into the frontend's VITE_CONTRACT_ID and redeploy.
+      try {
+        window.dispatchEvent(new CustomEvent("soroban:contractDeployed", {
+          detail: {
+            contractId,
+            name: deployMeta?.name,
+            path: deployMeta?.path,
+            network: deployMeta?.network,
+          },
+        }));
+        // Open preview and rebuild with the new contract ID.
+        window.dispatchEvent(new CustomEvent("soroban:runInIde"));
+      } catch { /* event dispatch is best-effort */ }
     };
 
     const appendTerminal = (type, content) => {

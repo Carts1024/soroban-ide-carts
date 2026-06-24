@@ -3,7 +3,19 @@ import { loadState, saveStateSection, clearState } from "../utils/storage";
 import { executeTerminalCommand, isBackendCommand } from "../features/terminal/terminalCommands";
 import { collectProjectFiles, submitCommand, connectBuildStream, fetchTemplate, resetSessionId } from "../services/backendService";
 import { useWorkspaceState, useTabManager } from "../features/workspace/workspaceHooks";
-import { createDefaultWorkspace, createBlankWorkspace } from "../features/workspace/workspaceTemplates";
+import {
+  createDefaultWorkspace,
+  createBlankWorkspace,
+  createHelloWorldWorkspace,
+  createFullstackWorkshopWorkspace,
+} from "../features/workspace/workspaceTemplates";
+
+// Templates bundled into the frontend via Vite glob. Anything in this map
+// is served immediately and never hits the backend `/api/templates` endpoint.
+const LOCAL_TEMPLATE_FACTORIES = {
+  "hello-world": createHelloWorldWorkspace,
+  "fullstack-workshop": createFullstackWorkshopWorkspace,
+};
 import { cloneRepository } from "../services/githubService";
 import { FileIconImg, FolderIconImg } from "../components/icons/FileIcon";
 import { ChevronDown, ChevronRight } from "../components/icons/ChevronIcons";
@@ -218,17 +230,26 @@ const Layout = () => {
           tabManager.resetTabs();
           window.dispatchEvent(new CustomEvent("soroban:clearTerminal"));
 
-          // Initialize locally using the specified template from BACKEND filesystem
-          console.log(`[Layout] Fetching ${templateName} template from backend filesystem...`);
-          try {
-            const { tree, contents } = await fetchTemplate(templateName);
+          // Prefer the locally bundled template if we have one — avoids a
+          // round trip and works fully offline. Otherwise ask the backend.
+          const localFactory = LOCAL_TEMPLATE_FACTORIES[templateName];
+          if (localFactory) {
+            console.log(`[Layout] Loading ${templateName} template from local bundle...`);
+            const { tree, contents } = localFactory();
             workspace.setTreeData(tree);
             workspace.setFileContents(contents);
-          } catch (templateError) {
-            console.error(`Failed to fetch ${templateName} template from backend, falling back to local blank project:`, templateError);
-            const { tree, contents } = createBlankWorkspace();
-            workspace.setTreeData(tree);
-            workspace.setFileContents(contents);
+          } else {
+            console.log(`[Layout] Fetching ${templateName} template from backend filesystem...`);
+            try {
+              const { tree, contents } = await fetchTemplate(templateName);
+              workspace.setTreeData(tree);
+              workspace.setFileContents(contents);
+            } catch (templateError) {
+              console.error(`Failed to fetch ${templateName} template from backend, falling back to local blank project:`, templateError);
+              const { tree, contents } = createBlankWorkspace();
+              workspace.setTreeData(tree);
+              workspace.setFileContents(contents);
+            }
           }
 
           setIsCreatingProject(false);
@@ -402,6 +423,12 @@ const Layout = () => {
         run: () => handleCreateProject("stellar-workshop"),
       },
       {
+        id: "project.createFullstackWorkshop",
+        title: "Create Fullstack Workshop (Contract + Frontend)",
+        category: "Project",
+        run: () => handleCreateProject("fullstack-workshop"),
+      },
+      {
         id: "project.cloneGithub",
         title: "Clone from GitHub…",
         category: "Project",
@@ -446,6 +473,24 @@ const Layout = () => {
         run: () => {
           if (isSettingsOpen) setIsSettingsOpen(false);
           dispatch("soroban:setSidebarPanel", { panel: "tutorial" });
+        },
+      },
+      {
+        id: "view.showPreview",
+        title: "Open Preview Panel",
+        category: "View",
+        run: () => {
+          if (isSettingsOpen) setIsSettingsOpen(false);
+          dispatch("soroban:setSidebarPanel", { panel: "preview" });
+        },
+      },
+      {
+        id: "view.showFullstack",
+        title: "Open Fullstack (Vercel) Panel",
+        category: "View",
+        run: () => {
+          if (isSettingsOpen) setIsSettingsOpen(false);
+          dispatch("soroban:setSidebarPanel", { panel: "fullstack" });
         },
       },
       {
@@ -560,6 +605,7 @@ const Layout = () => {
               setTreeData={workspace.setTreeData}
               treeData={workspace.treeData}
               fileContents={workspace.fileContents}
+              setFileContents={workspace.setFileContents}
               isSettingsOpen={isSettingsOpen}
               onToggleSettings={() => setIsSettingsOpen(!isSettingsOpen)}
               onConfirm={setConfirmModal}
@@ -615,6 +661,20 @@ const Layout = () => {
                           <polyline points="14 2 14 8 20 8" />
                         </svg>
                         Create Workshop Template
+                      </div>
+                      <div
+                        className="create-new-item"
+                        onClick={() => {
+                          handleCreateProject("fullstack-workshop");
+                          setShowCreateMenu(false);
+                        }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 3h7v7H3z" />
+                          <path d="M14 3h7v7h-7z" />
+                          <path d="M14 14h7v7h-7z" />
+                          <path d="M3 14h7v7H3z" />
+                        </svg>
+                        Create Fullstack Workshop
                       </div>
                       <div className="create-new-item" onClick={handleOpenGithubClone}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

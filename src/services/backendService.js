@@ -189,6 +189,35 @@ export const registerFreighterWallet = async (address) => {
   return res.json();
 };
 
+// ─── Vercel OAuth (backend-mediated token exchange) ──────────────────────────
+//
+// The frontend never holds the Vercel `client_secret`; the Go backend owns
+// the OAuth dance and exposes the four endpoints below. Until the backend
+// implementation lands these calls will 404 — `FullstackContext` handles that
+// gracefully by exposing the PAT fallback path.
+
+/** POST /api/vercel/oauth/start — returns the authorize URL + a state token. */
+export const startVercelOAuth = async () => {
+  const res = await fetch(`${API_BASE}/vercel/oauth/start`, { method: "POST" });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Could not start Vercel OAuth");
+  return res.json(); // { authorizeUrl, state }
+};
+
+/** GET /api/vercel/oauth/me — fetch the current session's Vercel token + user. */
+export const getVercelSession = async () => {
+  const res = await fetch(`${API_BASE}/vercel/oauth/me`, { credentials: "include" });
+  if (res.status === 404 || res.status === 401) return null;
+  if (!res.ok) throw new Error("Failed to read Vercel session");
+  return res.json(); // { accessToken, user, teamId? }
+};
+
+/** POST /api/vercel/oauth/disconnect — server-side revoke + clear session cookie. */
+export const disconnectVercel = async () => {
+  try {
+    await fetch(`${API_BASE}/vercel/oauth/disconnect`, { method: "POST", credentials: "include" });
+  } catch { /* best-effort */ }
+};
+
 // ─── Contract Interface ───────────────────────────────────────────────────────
 
 /**

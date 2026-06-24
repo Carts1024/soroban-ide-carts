@@ -175,6 +175,48 @@ export function toViteNetwork(network) {
 }
 
 /**
+ * Pick the best deployed contract for the fullstack-workshop counter UI.
+ * Prefers deployments whose interface includes `get` + `increment`, then
+ * paths containing "counter", then the most recent deploy overall.
+ */
+export function getPreviewContract(history, options = {}) {
+  const requiredMethods = options.requiredMethods || ["get", "increment"];
+  const pathHint = options.pathHint || "counter";
+
+  const candidates = [];
+  for (const group of listGroups(history)) {
+    for (const d of group.deployments) {
+      if (!d?.id?.startsWith("C")) continue;
+      const fnNames = new Set((d.functions || []).map((f) => f.name).filter(Boolean));
+      const hasRequired = requiredMethods.every((m) => fnNames.size === 0 || fnNames.has(m));
+      const pathMatch = group.path.includes(pathHint);
+      candidates.push({
+        contractId: d.id,
+        network: toViteNetwork(d.network),
+        deployedAt: d.deployedAt || 0,
+        status: d.status,
+        hasRequired,
+        pathMatch,
+        path: group.path,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => {
+    if (a.hasRequired !== b.hasRequired) return a.hasRequired ? -1 : 1;
+    if (a.pathMatch !== b.pathMatch) return a.pathMatch ? -1 : 1;
+    if ((a.status === "active") !== (b.status === "active")) return a.status === "active" ? -1 : 1;
+    return b.deployedAt - a.deployedAt;
+  });
+
+  const best = candidates[0];
+  if (best) {
+    return { contractId: best.contractId, network: best.network, path: best.path };
+  }
+  return getLatestDeployedContract(history);
+}
+
+/**
  * Most recently deployed contract across all history buckets.
  * Used by the in-IDE preview when frontend/.env has not been written yet.
  */

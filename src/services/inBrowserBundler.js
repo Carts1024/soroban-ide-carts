@@ -357,10 +357,10 @@ export async function bundleFrontendInBrowser(treeData, fileContents, options = 
   if (options.walletAddress) {
     env.VITE_WALLET_ADDRESS = options.walletAddress;
   }
-  if (options.contractId && !env.VITE_CONTRACT_ID) {
+  if (options.contractId) {
     env.VITE_CONTRACT_ID = options.contractId;
   }
-  if (options.network && !env.VITE_NETWORK) {
+  if (options.network) {
     env.VITE_NETWORK = options.network;
   }
   if (env.VITE_CONTRACT_ID && env.VITE_CONTRACT_ID.startsWith("G")) {

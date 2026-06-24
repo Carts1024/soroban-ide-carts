@@ -134,7 +134,17 @@ const App = () => {
               </div>
             )}
             {status.kind === "ok" && <div className="status status-ok">{status.message}</div>}
-            {status.kind === "error" && <div className="status status-error">{status.message}</div>}
+            {status.kind === "error" && (
+              <div className="status status-error">
+                {status.message}
+                {/does not have a "get" function/i.test(status.message) && (
+                  <div className="status-hint">
+                    In <strong>Deploy</strong>, select <code>contracts/counter</code>, build, deploy,
+                    then <strong>Rebuild</strong> in Preview.
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </main>

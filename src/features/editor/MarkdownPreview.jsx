@@ -10,8 +10,15 @@ const resolveImageSrc = (src, markdownPath, fileContents) => {
     return src;
   }
 
+  let decodedSrc = src;
+  try {
+    decodedSrc = decodeURIComponent(src);
+  } catch (e) {
+    // Ignore URI error, fallback to raw src
+  }
+
   // Normalize path by stripping leading ./ or /
-  let normalizedPath = src;
+  let normalizedPath = decodedSrc;
   if (normalizedPath.startsWith("./")) {
     normalizedPath = normalizedPath.substring(2);
   } else if (normalizedPath.startsWith("/")) {
@@ -48,7 +55,19 @@ const resolveImageSrc = (src, markdownPath, fileContents) => {
   return src;
 };
 
+const preprocessMarkdown = (markdown) => {
+  if (!markdown) return "";
+  return markdown.replace(/(!?\[[^\]]*\])\(([^)]+)\)/g, (match, label, url) => {
+    if (url.includes(" ")) {
+      return `${label}(${encodeURI(url)})`;
+    }
+    return match;
+  });
+};
+
 const MarkdownPreview = ({ content = "", filePath = "", fileContents = {}, theme = "dark" }) => {
+  const processedContent = useMemo(() => preprocessMarkdown(content), [content]);
+
   const components = useMemo(
     () => ({
       img: ({ src, alt, ...props }) => {
@@ -95,7 +114,7 @@ const MarkdownPreview = ({ content = "", filePath = "", fileContents = {}, theme
     <div className="markdown-preview" data-theme={theme}>
       <div className="markdown-preview-content">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-          {content}
+          {processedContent}
         </ReactMarkdown>
       </div>
     </div>

@@ -147,7 +147,7 @@ const Layout = () => {
       window.dispatchEvent(
         new CustomEvent("soroban:insertText", {
           detail: {
-            text: `![${finalName}](./assets/${finalName})`,
+            text: `![${finalName}](./assets/${encodeURIComponent(finalName)})`,
             fileId: tabManager.activeFileId,
           },
         })

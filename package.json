@@ -15,6 +15,8 @@
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-base": "^15.0.0",
     "@vercel/analytics": "^2.0.1",
+    "esbuild-wasm": "^0.28.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^1.7.0",
     "monaco-editor": "^0.50.0",
     "react": "^18.3.1",

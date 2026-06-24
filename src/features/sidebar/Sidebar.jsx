@@ -14,12 +14,16 @@ const PANEL_WIDTHS = {
   github: 450,
   tutorial: 620,
   deploy: 500,
+  fullstack: 560,
+  preview: 560,
   validation: 500,
 };
-import { Settings, BookOpen, Rocket, CheckCircle2 } from "lucide-react";
+import { Settings, BookOpen, Rocket, CheckCircle2, Triangle, Monitor } from "lucide-react";
 import TutorialPanel from "../tutorial/TutorialPanel";
 import DeployPanel from "../deploy/DeployPanel";
 import ValidationPanel from "../validation/ValidationPanel";
+import FullstackPanel from "../fullstack/FullstackPanel";
+import PreviewPanel from "../preview/PreviewPanel";
 
 const ActionButton = memo(({ icon, onClick, title }) => (
   <button className="sidebar-action" type="button" onClick={onClick} data-tooltip={title}>
@@ -30,7 +34,7 @@ const ActionButton = memo(({ icon, onClick, title }) => (
 /**
  * Sidebar component — contains file explorer, resize, collapse.
  */
-const Sidebar = memo(({ tree, expandedFolders, onToggleFolder, onFileSelect, onNodeSelect, selectedNodeId, onNewFile, onNewFolder, onDeleteItem, onRenameItem, onMoveItem, onUploadFiles, onCopyItem, onCutItem, onPasteItem, clipboard, onCollapseAll, activeFileId, lastSessionId, setTreeData, treeData, fileContents, isSettingsOpen, onToggleSettings, onConfirm, onOpenGithubRepository }) => {
+const Sidebar = memo(({ tree, expandedFolders, onToggleFolder, onFileSelect, onNodeSelect, selectedNodeId, onNewFile, onNewFolder, onDeleteItem, onRenameItem, onMoveItem, onUploadFiles, onCopyItem, onCutItem, onPasteItem, clipboard, onCollapseAll, activeFileId, lastSessionId, setTreeData, treeData, fileContents, setFileContents, isSettingsOpen, onToggleSettings, onConfirm, onOpenGithubRepository }) => {
   const root = tree?.[0];
   const persistedSidebarState = useMemo(() => loadState()?.sidebar, []);
 
@@ -266,14 +270,32 @@ const Sidebar = memo(({ tree, expandedFolders, onToggleFolder, onFileSelect, onN
       setTimeout(() => fileInputRef.current?.click(), 0);
     };
 
+    const handleRunInIde = () => {
+      const needsSwitch = isCollapsed || activePanel !== "preview";
+      if (needsSwitch) {
+        setIsCollapsed(false);
+        setWidth(PANEL_WIDTHS.preview);
+        setActivePanel("preview");
+      }
+      // Defer the build tick so PreviewPanel is mounted after a panel switch.
+      const fireBuild = () => window.dispatchEvent(new CustomEvent("soroban:runInIdeBuild"));
+      if (needsSwitch) {
+        requestAnimationFrame(() => requestAnimationFrame(fireBuild));
+      } else {
+        fireBuild();
+      }
+    };
+
     window.addEventListener("soroban:toggleSidebar", handleToggle);
     window.addEventListener("soroban:setSidebarPanel", handleSetPanel);
+    window.addEventListener("soroban:runInIde", handleRunInIde);
     window.addEventListener("soroban:startNewFile", handleStartNewFileEvt);
     window.addEventListener("soroban:startNewFolder", handleStartNewFolderEvt);
     window.addEventListener("soroban:uploadFiles", handleUploadEvt);
     return () => {
       window.removeEventListener("soroban:toggleSidebar", handleToggle);
       window.removeEventListener("soroban:setSidebarPanel", handleSetPanel);
+      window.removeEventListener("soroban:runInIde", handleRunInIde);
       window.removeEventListener("soroban:startNewFile", handleStartNewFileEvt);
       window.removeEventListener("soroban:startNewFolder", handleStartNewFolderEvt);
       window.removeEventListener("soroban:uploadFiles", handleUploadEvt);
@@ -681,6 +703,36 @@ const Sidebar = memo(({ tree, expandedFolders, onToggleFolder, onFileSelect, onN
           </button>
 
           <button
+            className={`activity-btn ${activePanel === "fullstack" && !isCollapsed ? "active" : ""}`}
+            onClick={() => {
+              if (isCollapsed || activePanel !== "fullstack") {
+                setIsCollapsed(false);
+                setWidth(PANEL_WIDTHS.fullstack);
+                setActivePanel("fullstack");
+              } else {
+                toggleCollapse();
+              }
+            }}
+            title="Fullstack (Vercel)">
+            <Triangle size={24} fill="currentColor" />
+          </button>
+
+          <button
+            className={`activity-btn ${activePanel === "preview" && !isCollapsed ? "active" : ""}`}
+            onClick={() => {
+              if (isCollapsed || activePanel !== "preview") {
+                setIsCollapsed(false);
+                setWidth(PANEL_WIDTHS.preview);
+                setActivePanel("preview");
+              } else {
+                toggleCollapse();
+              }
+            }}
+            title="Preview Frontend">
+            <Monitor size={24} />
+          </button>
+
+          <button
             className={`activity-btn ${activePanel === "validation" && !isCollapsed ? "active" : ""}`}
             onClick={() => {
               if (isCollapsed || activePanel !== "validation") {
@@ -720,6 +772,36 @@ const Sidebar = memo(({ tree, expandedFolders, onToggleFolder, onFileSelect, onN
               </div>
               <div className="sidebar-body" style={{ overflowY: "auto" }}>
                 <DeployPanel treeData={treeData || tree} fileContents={fileContents || {}} />
+              </div>
+            </>
+          ) : activePanel === "fullstack" ? (
+            <>
+              <div className="sidebar-header">
+                <div className="sidebar-title">Fullstack</div>
+              </div>
+              <div className="sidebar-body" style={{ overflowY: "auto" }}>
+                <FullstackPanel
+                  treeData={treeData || tree}
+                  fileContents={fileContents || {}}
+                  setFileContents={setFileContents}
+                  setTreeData={setTreeData}
+                />
+              </div>
+            </>
+          ) : activePanel === "preview" ? (
+            <>
+              <div className="sidebar-header">
+                <div className="sidebar-title">Preview</div>
+              </div>
+              <div
+                className="sidebar-body"
+                style={{ overflow: "hidden", display: "flex", flexDirection: "column", padding: 0 }}
+              >
+                <PreviewPanel
+                  treeData={treeData || tree}
+                  fileContents={fileContents || {}}
+                  isActive={activePanel === "preview" && !isCollapsed}
+                />
               </div>
             </>
           ) : activePanel === "validation" ? (

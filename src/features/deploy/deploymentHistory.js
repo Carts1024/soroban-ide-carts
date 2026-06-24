@@ -166,3 +166,25 @@ export function shortId(id) {
   if (!id || id.length < 16) return id || "";
   return `${id.slice(0, 8)}…${id.slice(-8)}`;
 }
+
+/** Map deploy-panel network slugs to Vite env values. */
+export function toViteNetwork(network) {
+  const n = (network || "testnet").toString().toUpperCase();
+  if (n === "PUBLIC" || n === "MAINNET") return "MAINNET";
+  return "TESTNET";
+}
+
+/**
+ * Most recently deployed contract across all history buckets.
+ * Used by the in-IDE preview when frontend/.env has not been written yet.
+ */
+export function getLatestDeployedContract(history) {
+  const groups = listGroups(history);
+  for (const group of groups) {
+    const head = group.deployments.find((d) => d.status === "active") || group.deployments[0];
+    if (head?.id && head.id.startsWith("C")) {
+      return { contractId: head.id, network: toViteNetwork(head.network) };
+    }
+  }
+  return null;
+}

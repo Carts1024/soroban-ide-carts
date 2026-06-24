@@ -14,6 +14,8 @@ import './styles/components.css';
 import './styles/github.css';
 import './styles/palette.css';
 import './styles/deploy.css';
+import './styles/fullstack.css';
+import './styles/preview.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

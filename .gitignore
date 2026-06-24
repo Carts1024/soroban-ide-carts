@@ -89,7 +89,27 @@ typings/
 # Vite
 .vite/
 
+# Vercel CLI / local deploy metadata
+.vercel/
+
 # Electron-Forge
 out/
 
+# Production / IDE build output
 dist/
+
+# Soroban / Rust contract build artifacts
+target/
+
+# Frontend workspace env files (keep .env.example tracked)
+**/frontend/.env
+**/frontend/.env.local
+**/frontend/.env.*.local
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+Thumbs.db

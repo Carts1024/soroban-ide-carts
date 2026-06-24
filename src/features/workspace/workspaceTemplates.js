@@ -4,6 +4,12 @@
  * We include all files except .git metadata.
  */
 const helloWorldFiles = import.meta.glob('../../templates/hello-world/**/*', { query: '?raw', import: 'default', eager: true });
+// The second glob explicitly opts in dotfiles like `.env.example`, which
+// the default `**/*` pattern skips.
+const fullstackWorkshopFiles = {
+  ...import.meta.glob('../../templates/fullstack-workshop/**/*', { query: '?raw', import: 'default', eager: true }),
+  ...import.meta.glob('../../templates/fullstack-workshop/**/.*', { query: '?raw', import: 'default', eager: true }),
+};
 
 /**
  * Helper to build a tree and contents from a flat template object or Vite glob.
@@ -60,6 +66,14 @@ const buildFromTemplate = (rootName, templates, pathPrefix = '') => {
 export const createHelloWorldWorkspace = () => {
   // Pass "../../templates/hello-world" as the prefix to extract clean relative paths
   return buildFromTemplate('hello-world', helloWorldFiles, '../../templates/hello-world');
+};
+
+export const createFullstackWorkshopWorkspace = () => {
+  return buildFromTemplate(
+    'fullstack-workshop',
+    fullstackWorkshopFiles,
+    '../../templates/fullstack-workshop',
+  );
 };
 
 export const createBlankWorkspace = () => {

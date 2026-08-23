@@ -191,10 +191,57 @@ const fetchFullTree = async (owner, repo, ref) => {
   return response.json();
 };
 
-const fetchRepoArchive = async (owner, repo, ref) => {
+const reportCloneProgress = (onProgress, percent, message, details = {}) => {
+  if (typeof onProgress !== "function") return;
+
+  try {
+    onProgress({
+      percent: Math.max(0, Math.min(100, Math.round(percent))),
+      message,
+      ...details,
+    });
+  } catch (error) {
+    // Progress reporting is a UI enhancement and must never abort a clone.
+    console.warn("GitHub clone progress callback failed:", error?.message || error);
+  }
+};
+
+const readResponseBytes = async (response, onDownloadProgress) => {
+  const contentLength = Number(response.headers?.get?.("content-length"));
+  const totalBytes = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0;
+  const reader = response.body?.getReader?.();
+
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    onDownloadProgress?.({ loadedBytes: buffer.byteLength, totalBytes });
+    return buffer;
+  }
+
+  const chunks = [];
+  let loadedBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value?.byteLength) continue;
+    chunks.push(value);
+    loadedBytes += value.byteLength;
+    onDownloadProgress?.({ loadedBytes, totalBytes });
+  }
+
+  const bytes = new Uint8Array(loadedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes.buffer;
+};
+
+const fetchRepoArchive = async (owner, repo, ref, onDownloadProgress) => {
   const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/zipball/${encodeURIComponent(ref)}`;
   const response = await githubFetch(url);
-  return response.arrayBuffer();
+  return readResponseBytes(response, onDownloadProgress);
 };
 
 /**
@@ -350,33 +397,62 @@ const buildTreeFromArchive = async (archiveBuffer, owner, repo, ref) => {
 
 // ─── Public: clone a repository ───────────────────────────────────────────
 
-export const cloneRepository = async (githubUrl) => {
+export const cloneRepository = async (githubUrl, onProgress) => {
   const parsed = parseGithubUrl(githubUrl);
   if (!parsed) {
     throw new Error("Invalid GitHub URL. Please use format: https://github.com/owner/repo");
   }
 
   const { owner, repo, branch: urlBranch } = parsed;
+  let lastReportedPercent = -1;
+  const report = (percent, message, details = {}) => {
+    const roundedPercent = Math.max(lastReportedPercent, Math.max(0, Math.min(100, Math.round(percent))));
+    if (roundedPercent === lastReportedPercent && !details.force) return;
+    lastReportedPercent = roundedPercent;
+    reportCloneProgress(onProgress, roundedPercent, message, details);
+  };
 
+  report(0, "Starting clone...");
+  report(5, "Loading repository metadata...");
   const repoInfo = await fetchRepoInfo(owner, repo);
   // Use branch from URL (e.g. /tree/feature-x) if present, else repo default.
   const defaultBranch = urlBranch || repoInfo.default_branch || "main";
 
   let workspaceSource;
+  let sourceType = "archive";
   try {
     // The archive endpoint returns the whole snapshot in one request and also
     // works for private repositories when the stored OAuth token is attached.
+    report(8, "Preparing repository archive...");
     workspaceSource = await buildTreeFromArchive(
-      await fetchRepoArchive(owner, repo, defaultBranch),
+      await fetchRepoArchive(owner, repo, defaultBranch, ({ loadedBytes, totalBytes }) => {
+        if (totalBytes > 0) {
+          const downloadRatio = Math.min(1, loadedBytes / totalBytes);
+          report(10 + downloadRatio * 55, "Downloading repository archive...", {
+            loadedBytes,
+            totalBytes,
+            indeterminate: false,
+          });
+        } else {
+          report(10, "Downloading repository archive...", {
+            loadedBytes,
+            totalBytes,
+            indeterminate: true,
+          });
+        }
+      }),
       owner,
       repo,
       defaultBranch,
     );
+    report(70, "Unpacking repository archive...");
   } catch (archiveError) {
     // Some browser/proxy combinations block the archive redirect. Preserve
     // the existing tree/raw implementation as a compatibility fallback.
+    sourceType = "tree";
     console.warn("GitHub archive download unavailable; falling back to file downloads:", archiveError?.message || archiveError);
 
+    report(20, "Reading repository tree...", { force: true, indeterminate: false });
     const tree = await fetchFullTree(owner, repo, defaultBranch);
     if (tree.truncated) {
       throw new Error(
@@ -384,24 +460,37 @@ export const cloneRepository = async (githubUrl) => {
       );
     }
 
+    report(38, "Building repository file tree...", { force: true, indeterminate: false });
     workspaceSource = buildTreeFromFlatList(tree.tree || [], owner, repo, defaultBranch);
   }
 
   const { nodes, files } = workspaceSource;
+  const contentStart = sourceType === "archive" ? 72 : 42;
+  const contentEnd = 96;
+  report(contentStart, files.length ? `Loading files (0/${files.length})...` : "Finalizing clone...", {
+    force: true,
+    indeterminate: false,
+  });
 
   // Download file contents in parallel with a concurrency cap. Failures on
   // individual files don't abort the whole clone — we substitute a placeholder
   // so the user still gets a working workspace and can retry a single file.
   const contents = {};
+  let completedFiles = 0;
   await parallelMap(files, MAX_FILE_CONCURRENCY, async ({ node, binary, loadContent }) => {
     try {
       contents[node.id] = await loadContent();
     } catch (err) {
       console.warn(`Failed to fetch ${node.path}:`, err?.message || err);
       contents[node.id] = binary ? "" : `// Error loading ${node.name}\n`;
+    } finally {
+      completedFiles += 1;
+      const fileRatio = files.length ? completedFiles / files.length : 1;
+      report(contentStart + fileRatio * (contentEnd - contentStart), `Loading files (${completedFiles}/${files.length})...`);
     }
   });
 
+  report(100, "Clone complete.", { force: true, indeterminate: false });
   const rootName = repoInfo.name || repo;
   const wrappedTree = [
     {
